@@ -1031,3 +1031,215 @@ class Runner(BaseModel):
             for column in output_columns
             if column not in reserved_columns
         ]
+        
+from typing import Any
+
+import pandas as pd
+import pytest
+
+from ml_pipeline.core import PredictionTask, PredictionType, TaskType
+from ml_pipeline.features import FeatureSpec
+from ml_pipeline.models import BaseModelAdapter, FittedModelAdapter
+from ml_pipeline.preprocessing.pipeline import PreprocessingPipeline
+from ml_pipeline.runner import Runner
+from ml_pipeline.tuning import GridSearchTuner
+from ml_pipeline.validation import BaseSplitter
+from ml_pipeline.validation.splitters.split import Split
+
+
+class TunableFittedModel(FittedModelAdapter):
+    def __init__(self, prediction_value: float) -> None:
+        self.prediction_value = prediction_value
+
+    def predict(
+        self,
+        data: pd.DataFrame,
+        task: PredictionTask,
+        feature_columns: list[str],
+    ) -> pd.DataFrame:
+        return pd.DataFrame(
+            {"prediction": [self.prediction_value] * len(data)},
+            index=data.index,
+        )
+
+
+class TunableDummyModel(BaseModelAdapter):
+    def __init__(self, prediction_value: float = 0.0) -> None:
+        self.prediction_value = prediction_value
+
+    def fit(
+        self,
+        train_data: pd.DataFrame,
+        task: PredictionTask,
+        feature_columns: list[str],
+        validation_data: pd.DataFrame | None = None,
+    ) -> FittedModelAdapter:
+        if validation_data is not None:
+            return TunableFittedModel(
+                prediction_value=self.prediction_value,
+            )
+
+        return TunableFittedModel(
+            prediction_value=self.prediction_value + 10.0 * len(train_data),
+        )
+
+    def with_params(
+        self,
+        params: dict[str, Any],
+    ) -> BaseModelAdapter:
+        return TunableDummyModel(
+            prediction_value=params.get(
+                "prediction_value",
+                self.prediction_value,
+            )
+        )
+
+
+class ValidationSplitter(BaseSplitter):
+    def get_split_for_date(
+        self,
+        data: pd.DataFrame,
+        task: PredictionTask,
+        prediction_date: str | pd.Timestamp,
+    ) -> Split:
+        return Split(
+            prediction_date=pd.Timestamp(prediction_date),
+            train_indices=pd.Index([0, 1]),
+            validation_indices=pd.Index([2, 3]),
+            prediction_indices=pd.Index([4]),
+            train_start_date=pd.Timestamp("2020-01-01"),
+            train_end_date=pd.Timestamp("2020-01-02"),
+            validation_start_date=pd.Timestamp("2020-01-03"),
+            validation_end_date=pd.Timestamp("2020-01-04"),
+            prediction_start_date=pd.Timestamp("2020-01-05"),
+            prediction_end_date=pd.Timestamp("2020-01-05"),
+        )
+
+    def split(
+        self,
+        data: pd.DataFrame,
+        task: PredictionTask,
+    ):
+        yield self.get_split_for_date(
+            data=data,
+            task=task,
+            prediction_date=pd.Timestamp("2020-01-05"),
+        )
+
+
+class NoValidationSplitter(ValidationSplitter):
+    def get_split_for_date(
+        self,
+        data: pd.DataFrame,
+        task: PredictionTask,
+        prediction_date: str | pd.Timestamp,
+    ) -> Split:
+        split = super().get_split_for_date(
+            data=data,
+            task=task,
+            prediction_date=prediction_date,
+        )
+
+        return Split(
+            prediction_date=split.prediction_date,
+            train_indices=split.train_indices,
+            validation_indices=None,
+            prediction_indices=split.prediction_indices,
+            train_start_date=split.train_start_date,
+            train_end_date=split.train_end_date,
+            validation_start_date=None,
+            validation_end_date=None,
+            prediction_start_date=split.prediction_start_date,
+            prediction_end_date=split.prediction_end_date,
+        )
+
+
+def make_task() -> PredictionTask:
+    return PredictionTask(
+        target_col="target",
+        date_col="date",
+        entity_col="asset_id",
+        task_type=TaskType.REGRESSION,
+        prediction_type=PredictionType.SCORE,
+    )
+
+
+def make_feature_spec() -> FeatureSpec:
+    return FeatureSpec.from_groups(
+        numeric=["x"],
+    )
+
+
+def make_data() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                [
+                    "2020-01-01",
+                    "2020-01-02",
+                    "2020-01-03",
+                    "2020-01-04",
+                    "2020-01-05",
+                ]
+            ),
+            "asset_id": ["A"] * 5,
+            "x": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "target": [0.0, 0.0, 1.0, 1.0, 99.0],
+        }
+    )
+
+
+def make_tuner() -> GridSearchTuner:
+    return GridSearchTuner(
+        param_grid={
+            "prediction_value": [0.0, 1.0, 3.0],
+        },
+        scoring="rmse",
+    )
+
+
+def make_runner(
+    splitter: BaseSplitter | None = None,
+) -> Runner:
+    return Runner(
+        task=make_task(),
+        feature_spec=make_feature_spec(),
+        splitter=splitter or ValidationSplitter(),
+        pipeline=PreprocessingPipeline(),
+        model=TunableDummyModel(),
+        tuner=make_tuner(),
+    )
+
+
+def test_runner_returns_tuning_result() -> None:
+    result = make_runner().predict_at(
+        data=make_data(),
+        prediction_date=pd.Timestamp("2020-01-05"),
+    )
+
+    assert result.tuning_result is not None
+    assert result.tuning_result.best_params == {
+        "prediction_value": 1.0,
+    }
+    assert result.tuning_result.best_score == 0.0
+
+
+def test_runner_refits_best_model_on_train_plus_validation() -> None:
+    result = make_runner().predict_at(
+        data=make_data(),
+        prediction_date=pd.Timestamp("2020-01-05"),
+    )
+
+    assert result.predictions["prediction"].iloc[0] == 41.0
+
+
+def test_runner_requires_validation_data_when_tuning_is_enabled() -> None:
+    runner = make_runner(
+        splitter=NoValidationSplitter(),
+    )
+
+    with pytest.raises(ValueError):
+        runner.predict_at(
+            data=make_data(),
+            prediction_date=pd.Timestamp("2020-01-05"),
+        )
