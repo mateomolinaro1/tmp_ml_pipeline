@@ -788,3 +788,246 @@ def test_grid_search_selects_best_params_for_higher_is_better_metric() -> None:
     assert result.best_params == {}
     assert result.best_score == pytest.approx(1.0)
     assert result.greater_is_better is True
+    
+import pandas as pd
+from pydantic import BaseModel, ConfigDict
+
+from ml_pipeline.core import PredictionTask
+from ml_pipeline.features import FeatureSpec
+from ml_pipeline.models import BaseModelAdapter, FittedModelAdapter
+from ml_pipeline.preprocessing.pipeline import PreprocessingPipeline
+from ml_pipeline.runner.context import RunnerContext
+from ml_pipeline.runner.result import PredictionResult
+from ml_pipeline.tuning import BaseTuner, TuningResult
+from ml_pipeline.validation import BaseSplitter
+from ml_pipeline.validation.splitters.split import Split
+
+
+class Runner(BaseModel):
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+
+    task: PredictionTask
+    feature_spec: FeatureSpec
+
+    splitter: BaseSplitter
+    pipeline: PreprocessingPipeline
+    model: BaseModelAdapter
+    tuner: BaseTuner | None = None
+
+    def predict_at(
+        self,
+        data: pd.DataFrame,
+        prediction_date: pd.Timestamp,
+    ) -> PredictionResult:
+        split = self.splitter.get_split_for_date(
+            data=data,
+            task=self.task,
+            prediction_date=prediction_date,
+        )
+
+        return self._predict_from_split(
+            data=data,
+            split=split,
+        )
+
+    def predict_range(
+        self,
+        data: pd.DataFrame,
+    ) -> list[PredictionResult]:
+        return [
+            self._predict_from_split(
+                data=data,
+                split=split,
+            )
+            for split in self.splitter.split(
+                data=data,
+                task=self.task,
+            )
+        ]
+
+    def _predict_from_split(
+        self,
+        data: pd.DataFrame,
+        split: Split,
+    ) -> PredictionResult:
+        train_data = data.loc[split.train_indices].copy()
+
+        validation_data: pd.DataFrame | None
+        if split.validation_indices is not None:
+            validation_data = data.loc[split.validation_indices].copy()
+        else:
+            validation_data = None
+
+        prediction_data = data.loc[split.prediction_indices].copy()
+
+        if self.tuner is None:
+            fitted_pipeline = self.pipeline.fit(
+                data=train_data,
+                task=self.task,
+            )
+
+            train_processed = fitted_pipeline.transform(
+                data=train_data,
+                task=self.task,
+            )
+
+            if validation_data is not None:
+                validation_processed = fitted_pipeline.transform(
+                    data=validation_data,
+                    task=self.task,
+                )
+            else:
+                validation_processed = None
+
+            prediction_processed = fitted_pipeline.transform(
+                data=prediction_data,
+                task=self.task,
+            )
+
+            model_feature_columns = self._model_feature_columns(
+                output_columns=fitted_pipeline.output_columns,
+            )
+
+            fitted_model = self.model.fit(
+                train_data=train_processed,
+                validation_data=validation_processed,
+                task=self.task,
+                feature_columns=model_feature_columns,
+            )
+
+            tuning_result = None
+
+        else:
+            if validation_data is None:
+                raise ValueError(
+                    "Validation data is required when hyperparameter tuning is enabled."
+                )
+
+            fitted_pipeline_for_tuning = self.pipeline.fit(
+                data=train_data,
+                task=self.task,
+            )
+
+            train_processed_for_tuning = fitted_pipeline_for_tuning.transform(
+                data=train_data,
+                task=self.task,
+            )
+
+            validation_processed_for_tuning = fitted_pipeline_for_tuning.transform(
+                data=validation_data,
+                task=self.task,
+            )
+
+            model_feature_columns_for_tuning = self._model_feature_columns(
+                output_columns=fitted_pipeline_for_tuning.output_columns,
+            )
+
+            tuning_result = self.tuner.fit(
+                model=self.model,
+                train_data=train_processed_for_tuning,
+                validation_data=validation_processed_for_tuning,
+                task=self.task,
+                feature_columns=model_feature_columns_for_tuning,
+            )
+
+            refit_data = pd.concat(
+                [
+                    train_data,
+                    validation_data,
+                ],
+                axis=0,
+            )
+
+            fitted_pipeline = self.pipeline.fit(
+                data=refit_data,
+                task=self.task,
+            )
+
+            refit_processed = fitted_pipeline.transform(
+                data=refit_data,
+                task=self.task,
+            )
+
+            prediction_processed = fitted_pipeline.transform(
+                data=prediction_data,
+                task=self.task,
+            )
+
+            model_feature_columns = self._model_feature_columns(
+                output_columns=fitted_pipeline.output_columns,
+            )
+
+            best_model = self.model.with_params(
+                params=tuning_result.best_params,
+            )
+
+            fitted_model = best_model.fit(
+                train_data=refit_processed,
+                validation_data=None,
+                task=self.task,
+                feature_columns=model_feature_columns,
+            )
+
+            train_processed = refit_processed.loc[train_data.index].copy()
+            validation_processed = refit_processed.loc[validation_data.index].copy()
+
+        predictions = fitted_model.predict(
+            data=prediction_processed,
+            task=self.task,
+            feature_columns=model_feature_columns,
+        )
+
+        _ = RunnerContext(
+            split=split,
+            train_data=train_data,
+            validation_data=validation_data,
+            prediction_data=prediction_data,
+            train_processed=train_processed,
+            validation_processed=validation_processed,
+            prediction_processed=prediction_processed,
+        )
+
+        return PredictionResult(
+            predictions=predictions,
+            actuals=prediction_data[self.task.target_col].copy(),
+            prediction_data=prediction_data.copy(),
+            prediction_date=split.prediction_date,
+            train_size=len(train_data),
+            validation_size=(
+                len(validation_data)
+                if validation_data is not None
+                else 0
+            ),
+            prediction_size=len(prediction_data),
+            train_start_date=split.train_start_date,
+            train_end_date=split.train_end_date,
+            validation_start_date=split.validation_start_date,
+            validation_end_date=split.validation_end_date,
+            prediction_start_date=split.prediction_start_date,
+            prediction_end_date=split.prediction_end_date,
+            features_used=self.feature_spec.active_feature_columns,
+            output_columns=model_feature_columns,
+            tuning_result=tuning_result,
+        )
+
+    def _model_feature_columns(
+        self,
+        output_columns: list[str],
+    ) -> list[str]:
+        reserved_columns = {
+            self.task.date_col,
+            self.task.target_col,
+        }
+
+        if self.task.entity_col is not None:
+            reserved_columns.add(self.task.entity_col)
+
+        return [
+            column
+            for column in output_columns
+            if column not in reserved_columns
+        ]
