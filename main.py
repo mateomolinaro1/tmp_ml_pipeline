@@ -725,3 +725,66 @@ def test_grid_search_raises_when_prediction_column_is_missing() -> None:
             task=make_task(),
             feature_columns=["x"],
         )
+    
+def test_grid_search_selects_best_params_for_higher_is_better_metric() -> None:
+    class FeatureBasedFittedModel(FittedModelAdapter):
+        def predict(
+            self,
+            data: pd.DataFrame,
+            task: PredictionTask,
+            feature_columns: list[str],
+        ) -> pd.DataFrame:
+            return pd.DataFrame(
+                {
+                    "prediction": data["x"],
+                },
+                index=data.index,
+            )
+
+    class FeatureBasedModel(BaseModelAdapter):
+        def fit(
+            self,
+            train_data: pd.DataFrame,
+            task: PredictionTask,
+            feature_columns: list[str],
+            validation_data: pd.DataFrame | None = None,
+        ) -> FittedModelAdapter:
+            return FeatureBasedFittedModel()
+
+        def with_params(
+            self,
+            params: dict[str, Any],
+        ) -> BaseModelAdapter:
+            return self
+
+    validation_data = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                [
+                    "2020-01-03",
+                    "2020-01-04",
+                    "2020-01-05",
+                ]
+            ),
+            "asset_id": ["A", "B", "C"],
+            "x": [1.0, 2.0, 3.0],
+            "target": [1.0, 2.0, 3.0],
+        }
+    )
+
+    tuner = GridSearchTuner(
+        param_grid={},
+        scoring="ic",
+    )
+
+    result = tuner.fit(
+        model=FeatureBasedModel(),
+        train_data=make_train_data(),
+        validation_data=validation_data,
+        task=make_task(),
+        feature_columns=["x"],
+    )
+
+    assert result.best_params == {}
+    assert result.best_score == pytest.approx(1.0)
+    assert result.greater_is_better is True
