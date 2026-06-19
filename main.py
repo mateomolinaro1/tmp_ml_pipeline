@@ -1369,3 +1369,182 @@ def test_macro_dataset_end_to_end() -> None:
     assert "mae" in evaluation.global_metrics
     assert "ic_mean" in evaluation.global_metrics
     assert "rank_ic_mean" in evaluation.global_metrics
+    
+    from typing import Any
+
+import pandas as pd
+from pydantic import BaseModel, ConfigDict, Field
+
+from ml_pipeline.preprocessing.base import FittablePreprocessor
+from ml_pipeline.preprocessing.missing.standard.base import MissingValueImputer
+from ml_pipeline.preprocessing.missing.standard.registry import (
+    default_missing_value_registry,
+)
+from ml_pipeline.preprocessing.missing.standard.spec import MissingValueSpec
+
+
+class FittedMissingValueEngine(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    spec: MissingValueSpec
+    fitted_values: dict[str, Any]
+    dropped_columns: list[str] = Field(default_factory=list)
+
+    def fit(self, data: pd.DataFrame) -> "FittedMissingValueEngine":
+        return self
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        output = data.copy()
+
+        output = output.drop(
+            columns=self.dropped_columns,
+            errors="ignore",
+        )
+
+        for column, strategy in self.spec.strategies.items():
+            if column in self.dropped_columns:
+                continue
+
+            if column not in output.columns:
+                raise ValueError(f"Column '{column}' not found in data.")
+
+            imputer = _resolve_imputer(strategy)
+            fitted_value = self.fitted_values[column]
+
+            output[column] = imputer.transform(output[column], fitted_value)
+
+        return output
+
+
+class MissingValueEngine(BaseModel, FittablePreprocessor[FittedMissingValueEngine]):
+    model_config = ConfigDict(frozen=True, extra="forbid", arbitrary_types_allowed=True)
+
+    spec: MissingValueSpec
+    registry: dict[str, MissingValueImputer] = Field(
+        default_factory=default_missing_value_registry
+    )
+
+    def fit(self, data: pd.DataFrame) -> FittedMissingValueEngine:
+        fitted_values: dict[str, Any] = {}
+        dropped_columns: list[str] = []
+
+        for column, strategy in self.spec.strategies.items():
+            if column not in data.columns:
+                raise ValueError(f"Column '{column}' not found in data.")
+
+            if data[column].isna().all():
+                dropped_columns.append(column)
+                continue
+
+            imputer = self._resolve_imputer(strategy)
+            fitted_values[column] = imputer.fit(data[column])
+
+        return FittedMissingValueEngine(
+            spec=self.spec,
+            fitted_values=fitted_values,
+            dropped_columns=dropped_columns,
+        )
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        raise RuntimeError(
+            "MissingValueEngine must be fitted before transform. "
+            "Call fitted = engine.fit(train_data), then fitted.transform(data)."
+        )
+
+    def _resolve_imputer(
+        self,
+        strategy: str | MissingValueImputer,
+    ) -> MissingValueImputer:
+        if isinstance(strategy, str):
+            return self.registry[strategy]
+
+        return strategy
+
+
+def _resolve_imputer(strategy: str | MissingValueImputer) -> MissingValueImputer:
+    if isinstance(strategy, str):
+        return default_missing_value_registry()[strategy]
+
+    return strategy
+    
+    
+import pandas as pd
+
+from ml_pipeline.preprocessing.missing import MissingValueEngine, MissingValueSpec
+
+
+def test_all_nan_column_is_dropped_after_fit_transform() -> None:
+    data = pd.DataFrame(
+        {
+            "x1": [1.0, 2.0, 3.0],
+            "x2": [None, None, None],
+        }
+    )
+
+    engine = MissingValueEngine(
+        spec=MissingValueSpec(
+            strategies={
+                "x1": "mean",
+                "x2": "mean",
+            }
+        )
+    )
+
+    fitted = engine.fit(data)
+    transformed = fitted.transform(data)
+
+    assert fitted.dropped_columns == ["x2"]
+    assert list(transformed.columns) == ["x1"]
+
+
+def test_column_all_nan_in_train_is_dropped_even_if_present_in_prediction() -> None:
+    train_data = pd.DataFrame(
+        {
+            "x1": [1.0, 2.0, 3.0],
+            "x2": [None, None, None],
+        }
+    )
+
+    prediction_data = pd.DataFrame(
+        {
+            "x1": [4.0, None],
+            "x2": [10.0, 20.0],
+        }
+    )
+
+    engine = MissingValueEngine(
+        spec=MissingValueSpec(
+            strategies={
+                "x1": "mean",
+                "x2": "mean",
+            }
+        )
+    )
+
+    fitted = engine.fit(train_data)
+    transformed = fitted.transform(prediction_data)
+
+    assert list(transformed.columns) == ["x1"]
+    assert transformed["x1"].tolist() == [4.0, 2.0]
+
+
+def test_non_all_nan_column_is_mean_imputed() -> None:
+    data = pd.DataFrame(
+        {
+            "x1": [1.0, None, 3.0],
+        }
+    )
+
+    engine = MissingValueEngine(
+        spec=MissingValueSpec(
+            strategies={
+                "x1": "mean",
+            }
+        )
+    )
+
+    fitted = engine.fit(data)
+    transformed = fitted.transform(data)
+
+    assert fitted.dropped_columns == []
+    assert transformed["x1"].tolist() == [1.0, 2.0, 3.0]
