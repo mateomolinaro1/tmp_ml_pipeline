@@ -1243,3 +1243,129 @@ def test_runner_requires_validation_data_when_tuning_is_enabled() -> None:
             data=make_data(),
             prediction_date=pd.Timestamp("2020-01-05"),
         )
+        
+        
+from pathlib import Path
+
+import pandas as pd
+
+from ml_pipeline.core import PredictionTask, PredictionType, TaskType
+from ml_pipeline.evaluation import EvaluationEngine
+from ml_pipeline.features import FeatureSpec
+from ml_pipeline.models.sklearn import SklearnElasticNet
+from ml_pipeline.preprocessing.missing import MissingValueEngine, MissingValueSpec
+from ml_pipeline.preprocessing.pipeline import PreprocessingPipeline
+from ml_pipeline.preprocessing.scaling import ScalingEngine, ScalingSpec
+from ml_pipeline.runner import Runner
+from ml_pipeline.tuning import GridSearchTuner
+from ml_pipeline.validation import ExpandingWindowSplitter
+
+
+DATA_PATH = Path("data/2026-05-MO.csv")
+
+
+def load_macro_data() -> pd.DataFrame:
+    raw = pd.read_csv(DATA_PATH)
+
+    transform = raw.iloc[0, 1:].to_dict()
+    transform = {key: value for key, value in transform.items()}
+
+    data = raw.iloc[1:, :].copy()
+    data.index = pd.to_datetime(data["sasdate"])
+    data.index.name = "date"
+    data = data.drop(columns=["sasdate"])
+
+    for column in data.columns:
+        data[column] = pd.to_numeric(data[column], errors="coerce")
+
+    data["target"] = data["RPI"].shift(-1)
+    data = data.dropna(subset=["target"])
+
+    data = data.reset_index()
+
+    return data
+
+
+def test_macro_dataset_end_to_end() -> None:
+    data = load_macro_data()
+
+    feature_columns = [
+        column
+        for column in data.columns
+        if column not in {"date", "target"}
+    ]
+
+    task = PredictionTask(
+        target_col="target",
+        date_col="date",
+        entity_col=None,
+        task_type=TaskType.REGRESSION,
+        prediction_type=PredictionType.SCORE,
+    )
+
+    feature_spec = FeatureSpec.from_groups(
+        numeric=feature_columns,
+    )
+
+    pipeline = PreprocessingPipeline(
+        steps=[
+            MissingValueEngine(
+                spec=MissingValueSpec(
+                    strategies={
+                        column: "mean"
+                        for column in feature_columns
+                    }
+                )
+            ),
+            ScalingEngine(
+                spec=ScalingSpec(
+                    strategies={
+                        column: "standard"
+                        for column in feature_columns
+                    }
+                )
+            ),
+        ]
+    )
+
+    runner = Runner(
+        task=task,
+        feature_spec=feature_spec,
+        splitter=ExpandingWindowSplitter(
+            min_train_window="20Y",
+            validation_window="5Y",
+            prediction_window="1M",
+            step="12M",
+        ),
+        pipeline=pipeline,
+        model=SklearnElasticNet(
+            max_iter=5000,
+        ),
+        tuner=GridSearchTuner(
+            param_grid={
+                "alpha": [0.001, 0.01, 0.1],
+                "l1_ratio": [0.2, 0.5, 0.8],
+            },
+            scoring="rmse",
+        ),
+    )
+
+    results = runner.predict_range(data=data)
+
+    assert len(results) > 0
+    assert all(result.tuning_result is not None for result in results)
+    assert all(len(result.predictions) > 0 for result in results)
+    assert all(result.predictions["prediction"].notna().all() for result in results)
+
+    evaluation = EvaluationEngine().evaluate(
+        results=results,
+        task=task,
+    )
+
+    assert not evaluation.evaluation_frame.empty
+    assert not evaluation.date_metrics.empty
+
+    assert "rmse" in evaluation.global_metrics
+    assert "mae" in evaluation.global_metrics
+    assert "ic_mean" in evaluation.global_metrics
+    assert "rank_ic_mean" in evaluation.global_metrics
