@@ -1,3 +1,534 @@
+\section{Exact vs.\ Economic Decomposition of the Beta-Neutral Pure Alpha}
+
+We consider a Pure Alpha portfolio with weights
+\[
+\mathbf{w}_t
+=
+\mathbf{w}_t^L
++
+\mathbf{w}_t^S,
+\]
+where $\mathbf{w}_t^L$ and $\mathbf{w}_t^S$ denote the long and short
+components, respectively.
+
+\subsection{Exact beta-neutralization}
+
+Let
+\[
+\boldsymbol{\beta}_t
+=
+\begin{pmatrix}
+\beta_{1,t} \\
+\vdots \\
+\beta_{N,t}
+\end{pmatrix}
+\]
+denote the vector of individual stock market betas.
+
+The beta-neutralization procedure used in the portfolio construction is
+\[
+\boxed{
+\mathbf{w}_t^{BN}
+=
+\mathbf{w}_t
+-
+\lambda_t \boldsymbol{\beta}_t
+}
+\]
+where
+\[
+\boxed{
+\lambda_t
+=
+\frac{
+\boldsymbol{\beta}_t^\top \mathbf{w}_t
+}{
+\boldsymbol{\beta}_t^\top \boldsymbol{\beta}_t
+}.
+}
+\]
+
+Indeed,
+\[
+\begin{aligned}
+\boldsymbol{\beta}_t^\top \mathbf{w}_t^{BN}
+&=
+\boldsymbol{\beta}_t^\top
+\left(
+\mathbf{w}_t
+-
+\lambda_t \boldsymbol{\beta}_t
+\right)
+\\
+&=
+\boldsymbol{\beta}_t^\top \mathbf{w}_t
+-
+\lambda_t
+\boldsymbol{\beta}_t^\top \boldsymbol{\beta}_t
+\\
+&=0.
+\end{aligned}
+\]
+
+Hence, the resulting portfolio is beta-neutral by construction.
+
+\subsection{Exact long--short decomposition}
+
+Since
+\[
+\mathbf{w}_t
+=
+\mathbf{w}_t^L
++
+\mathbf{w}_t^S,
+\]
+we can define
+\[
+\lambda_t^L
+=
+\frac{
+\boldsymbol{\beta}_t^\top \mathbf{w}_t^L
+}{
+\boldsymbol{\beta}_t^\top \boldsymbol{\beta}_t
+}
+\]
+and
+\[
+\lambda_t^S
+=
+\frac{
+\boldsymbol{\beta}_t^\top \mathbf{w}_t^S
+}{
+\boldsymbol{\beta}_t^\top \boldsymbol{\beta}_t
+}.
+\]
+
+By linearity,
+\[
+\lambda_t
+=
+\lambda_t^L
++
+\lambda_t^S.
+\]
+
+Therefore,
+\[
+\begin{aligned}
+\mathbf{w}_t^{BN}
+&=
+\mathbf{w}_t^L
++
+\mathbf{w}_t^S
+-
+(\lambda_t^L+\lambda_t^S)\boldsymbol{\beta}_t
+\\
+&=
+\left(
+\mathbf{w}_t^L-\lambda_t^L\boldsymbol{\beta}_t
+\right)
++
+\left(
+\mathbf{w}_t^S-\lambda_t^S\boldsymbol{\beta}_t
+\right).
+\end{aligned}
+\]
+
+We may consequently define
+\[
+\boxed{
+\mathbf{w}_t^{L,BN}
+=
+\mathbf{w}_t^L
+-
+\lambda_t^L\boldsymbol{\beta}_t
+}
+\]
+and
+\[
+\boxed{
+\mathbf{w}_t^{S,BN}
+=
+\mathbf{w}_t^S
+-
+\lambda_t^S\boldsymbol{\beta}_t.
+}
+\]
+
+Thus,
+\[
+\boxed{
+\mathbf{w}_t^{BN}
+=
+\mathbf{w}_t^{L,BN}
++
+\mathbf{w}_t^{S,BN}.
+}
+\]
+
+Let $\mathbf{r}_{t+1}$ denote the vector of individual stock returns over
+period $t$ to $t+1$. The raw long-leg return is
+\[
+R_{t+1}^L
+=
+(\mathbf{w}_t^L)^\top\mathbf{r}_{t+1},
+\]
+while the raw short-leg return is
+\[
+R_{t+1}^S
+=
+(\mathbf{w}_t^S)^\top\mathbf{r}_{t+1}.
+\]
+
+Define the return of the beta-weighted portfolio as
+\[
+\boxed{
+R_{t+1}^{\beta}
+=
+\boldsymbol{\beta}_t^\top\mathbf{r}_{t+1}
+=
+\sum_{i=1}^{N}\beta_{i,t}r_{i,t+1}.
+}
+\]
+
+The exact return decomposition is therefore
+\[
+\boxed{
+R_{t+1}^{L,BN}
+=
+R_{t+1}^L
+-
+\lambda_t^L R_{t+1}^{\beta}
+}
+\]
+and
+\[
+\boxed{
+R_{t+1}^{S,BN}
+=
+R_{t+1}^S
+-
+\lambda_t^S R_{t+1}^{\beta}.
+}
+\]
+
+Hence,
+\[
+\boxed{
+R_{t+1}^{PA,BN}
+=
+R_{t+1}^{L,BN}
++
+R_{t+1}^{S,BN}.
+}
+\]
+
+\subsection{Rewriting the exact decomposition using portfolio betas}
+
+Define the beta contributions of the long and short legs as
+\[
+\beta_t^L
+=
+\boldsymbol{\beta}_t^\top\mathbf{w}_t^L
+\]
+and
+\[
+\beta_t^S
+=
+\boldsymbol{\beta}_t^\top\mathbf{w}_t^S.
+\]
+
+Since
+\[
+\lambda_t^L
+=
+\frac{
+\beta_t^L
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+},
+\]
+we have
+\[
+\lambda_t^L R_{t+1}^{\beta}
+=
+\beta_t^L
+\frac{
+\boldsymbol{\beta}_t^\top\mathbf{r}_{t+1}
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}.
+\]
+
+Define
+\[
+\boxed{
+R_{t+1}^{\beta,*}
+=
+\frac{
+\boldsymbol{\beta}_t^\top\mathbf{r}_{t+1}
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}.
+}
+\]
+
+The exact long-leg decomposition can then be written as
+\[
+\boxed{
+R_{t+1}^{L,BN}
+=
+R_{t+1}^L
+-
+\beta_t^L R_{t+1}^{\beta,*}.
+}
+\]
+
+Similarly,
+\[
+\boxed{
+R_{t+1}^{S,BN}
+=
+R_{t+1}^S
+-
+\beta_t^S R_{t+1}^{\beta,*}.
+}
+\]
+
+\subsection{Economic decomposition}
+
+A more intuitive economic decomposition consists of replacing the
+beta-mimicking portfolio return $R_{t+1}^{\beta,*}$ by the actual market
+benchmark return $R_{M,t+1}$.
+
+The long leg is then approximated by
+\[
+\boxed{
+R_{t+1}^{L,BN,\mathrm{econ}}
+=
+R_{t+1}^L
+-
+\beta_t^L R_{M,t+1}
+}
+\]
+and the short leg by
+\[
+\boxed{
+R_{t+1}^{S,BN,\mathrm{econ}}
+=
+R_{t+1}^S
+-
+\beta_t^S R_{M,t+1}.
+}
+\]
+
+This decomposition is exact only if
+\[
+\boxed{
+R_{t+1}^{\beta,*}
+=
+R_{M,t+1}.
+}
+\]
+
+Otherwise, it constitutes an approximation of the beta-neutralization
+actually implemented in the portfolio construction.
+
+\subsection{Why the beta-mimicking portfolio approximates the market}
+
+Consider the single-factor market model
+\[
+\mathbf{r}_{t+1}
+=
+\boldsymbol{\alpha}_t
++
+\boldsymbol{\beta}_t R_{M,t+1}
++
+\boldsymbol{\varepsilon}_{t+1}.
+\]
+
+Premultiplying by $\boldsymbol{\beta}_t^\top$ gives
+\[
+\boldsymbol{\beta}_t^\top\mathbf{r}_{t+1}
+=
+\boldsymbol{\beta}_t^\top\boldsymbol{\alpha}_t
++
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t R_{M,t+1}
++
+\boldsymbol{\beta}_t^\top\boldsymbol{\varepsilon}_{t+1}.
+\]
+
+Dividing by
+$\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t$ yields
+\[
+\boxed{
+R_{t+1}^{\beta,*}
+=
+R_{M,t+1}
++
+\frac{
+\boldsymbol{\beta}_t^\top\boldsymbol{\alpha}_t
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}
++
+\frac{
+\boldsymbol{\beta}_t^\top\boldsymbol{\varepsilon}_{t+1}
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}.
+}
+\]
+
+If the beta-weighted alpha component is small,
+\[
+\frac{
+\boldsymbol{\beta}_t^\top\boldsymbol{\alpha}_t
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}
+\approx 0,
+\]
+and idiosyncratic risks are sufficiently diversified,
+\[
+\frac{
+\boldsymbol{\beta}_t^\top\boldsymbol{\varepsilon}_{t+1}
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}
+\approx 0,
+\]
+then
+\[
+\boxed{
+R_{t+1}^{\beta,*}
+\approx
+R_{M,t+1}.
+}
+\]
+
+Consequently,
+\[
+\boxed{
+R_{t+1}^{L,BN}
+\approx
+R_{t+1}^L
+-
+\beta_t^L R_{M,t+1},
+}
+\]
+and similarly,
+\[
+\boxed{
+R_{t+1}^{S,BN}
+\approx
+R_{t+1}^S
+-
+\beta_t^S R_{M,t+1}.
+}
+\]
+
+\subsection{Approximation error}
+
+The difference between the exact and economic long-leg decompositions is
+\[
+\begin{aligned}
+R_{t+1}^{L,BN}
+-
+R_{t+1}^{L,BN,\mathrm{econ}}
+&=
+-\beta_t^L
+\left(
+R_{t+1}^{\beta,*}
+-
+R_{M,t+1}
+\right).
+\end{aligned}
+\]
+
+Using the market model above,
+\[
+\boxed{
+R_{t+1}^{L,BN}
+-
+R_{t+1}^{L,BN,\mathrm{econ}}
+=
+-\beta_t^L
+\frac{
+\boldsymbol{\beta}_t^\top
+\left(
+\boldsymbol{\alpha}_t
++
+\boldsymbol{\varepsilon}_{t+1}
+\right)
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}.
+}
+\]
+
+Similarly, for the short leg,
+\[
+\boxed{
+R_{t+1}^{S,BN}
+-
+R_{t+1}^{S,BN,\mathrm{econ}}
+=
+-\beta_t^S
+\frac{
+\boldsymbol{\beta}_t^\top
+\left(
+\boldsymbol{\alpha}_t
++
+\boldsymbol{\varepsilon}_{t+1}
+\right)
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}.
+}
+\]
+
+Finally, defining
+\[
+\beta_t^{PA}
+=
+\beta_t^L+\beta_t^S,
+\]
+the total approximation error is
+\[
+\boxed{
+R_{t+1}^{PA,BN}
+-
+R_{t+1}^{PA,BN,\mathrm{econ}}
+=
+-\beta_t^{PA}
+\left(
+R_{t+1}^{\beta,*}-R_{M,t+1}
+\right).
+}
+\]
+
+Equivalently,
+\[
+\boxed{
+R_{t+1}^{PA,BN}
+-
+R_{t+1}^{PA,BN,\mathrm{econ}}
+=
+-\beta_t^{PA}
+\frac{
+\boldsymbol{\beta}_t^\top
+\left(
+\boldsymbol{\alpha}_t
++
+\boldsymbol{\varepsilon}_{t+1}
+\right)
+}{
+\boldsymbol{\beta}_t^\top\boldsymbol{\beta}_t
+}.
+}
+\]
+
 from collections.abc import Callable
 
 import pandas as pd
