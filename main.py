@@ -2079,3 +2079,361 @@ def test_non_all_nan_column_is_mean_imputed() -> None:
 
     assert fitted.dropped_columns == []
     assert transformed["x1"].tolist() == [1.0, 2.0, 3.0]
+    
+    import numpy as np
+import pandas as pd
+
+# ============================================================
+# Inputs assumed available
+# ============================================================
+# w_before_bn : DataFrame [dates x assets]
+#     Pure Alpha weights BEFORE beta-neutralization and BEFORE isovol
+#
+# rets : DataFrame [dates x assets]
+#     Asset returns over period (t-1, t]
+#
+# betas : DataFrame [dates x assets]
+#     Individual stock betas used by BetaNeutralization
+#
+# vol : DataFrame or Series [dates]
+#     Ex-ante volatility used for isovol
+#
+# pa_bn_isovol : Series/DataFrame [dates]
+#     Original strategy returns after BN + isovol, only for comparison
+#
+# vol_target = 0.05
+
+
+# ============================================================
+# 1. Align dates and assets
+# ============================================================
+
+common_dates = (
+    w_before_bn.index
+    .intersection(rets.index)
+    .intersection(betas.index)
+)
+
+common_assets = (
+    w_before_bn.columns
+    .intersection(rets.columns)
+    .intersection(betas.columns)
+)
+
+w = w_before_bn.reindex(
+    index=common_dates,
+    columns=common_assets
+)
+
+rets_aligned = rets.reindex(
+    index=common_dates,
+    columns=common_assets
+)
+
+betas_aligned = betas.reindex(
+    index=common_dates,
+    columns=common_assets
+)
+
+# Keep the same dates for vol
+if isinstance(vol, pd.DataFrame):
+    vol_aligned = vol.reindex(common_dates).iloc[:, 0]
+else:
+    vol_aligned = vol.reindex(common_dates)
+
+
+# ============================================================
+# 2. Split pre-BN portfolio into long and short legs
+# ============================================================
+
+w_lo = w.where(w > 0, 0.0)
+
+w_so = w.where(w < 0, 0.0)
+
+
+# ============================================================
+# 3. Realized raw long / short returns
+#
+# R_t^L = w_{t-1}^{L,T} r_t
+# R_t^S = w_{t-1}^{S,T} r_t
+# ============================================================
+
+w_lo_lag = w_lo.shift(1)
+w_so_lag = w_so.shift(1)
+
+ret_lo = (
+    w_lo_lag
+    .mul(rets_aligned)
+    .sum(axis=1)
+    .rename("ret_lo")
+)
+
+ret_so = (
+    w_so_lag
+    .mul(rets_aligned)
+    .sum(axis=1)
+    .rename("ret_so")
+)
+
+
+# ============================================================
+# 4. Lag the beta vector
+#
+# beta_{t-1} is the vector used to construct the portfolio
+# whose return is realized at t.
+# ============================================================
+
+betas_lag = betas_aligned.shift(1)
+
+
+# ============================================================
+# 5. Long / short beta contributions
+#
+# beta_{t-1}^L = beta_{t-1}' w_{t-1}^L
+# beta_{t-1}^S = beta_{t-1}' w_{t-1}^S
+# ============================================================
+
+beta_lo = (
+    w_lo_lag
+    .mul(betas_lag)
+    .sum(axis=1)
+    .rename("beta_lo")
+)
+
+beta_so = (
+    w_so_lag
+    .mul(betas_lag)
+    .sum(axis=1)
+    .rename("beta_so")
+)
+
+
+# ============================================================
+# 6. Exact beta-mimicking return
+#
+# R_t^{beta,*}
+# =
+# (beta_{t-1}' r_t)
+# /
+# (beta_{t-1}' beta_{t-1})
+# ============================================================
+
+beta_port_ret = (
+    betas_lag
+    .mul(rets_aligned)
+    .sum(axis=1)
+    .rename("beta_port_ret")
+)
+
+beta_norm_sq = (
+    betas_lag
+    .pow(2)
+    .sum(axis=1)
+    .rename("beta_norm_sq")
+)
+
+beta_mimicking_ret = (
+    beta_port_ret / beta_norm_sq
+).rename("beta_mimicking_ret")
+
+
+# ============================================================
+# 7. Exact beta-neutral long / short decomposition
+#
+# R_t^{L,BN}
+# =
+# R_t^{L,NBN}
+# -
+# beta_{t-1}^L * R_t^{beta,*}
+#
+# R_t^{S,BN}
+# =
+# R_t^{S,NBN}
+# -
+# beta_{t-1}^S * R_t^{beta,*}
+# ============================================================
+
+ret_lo_bn = (
+    ret_lo
+    - beta_lo * beta_mimicking_ret
+).rename("ret_lo_bn")
+
+ret_so_bn = (
+    ret_so
+    - beta_so * beta_mimicking_ret
+).rename("ret_so_bn")
+
+
+# ============================================================
+# 8. Rebuild beta-neutral Pure Alpha before isovol
+# ============================================================
+
+pa_bn_rebuilt_pre_isovol = (
+    ret_lo_bn + ret_so_bn
+).rename("pa_bn_rebuilt_pre_isovol")
+
+
+# ============================================================
+# 9. Isovol scaler
+#
+# k_{t-1} = vol_target / vol_{t-1}
+#
+# IMPORTANT:
+# If "vol" is already stored at date t as the scaler applicable
+# to return t, remove the shift below.
+# ============================================================
+
+vol_target = 0.05
+
+k = (
+    vol_target / vol_aligned.shift(1)
+).rename("k")
+
+
+# ============================================================
+# 10. Apply the SAME global isovol scaler to both legs
+# ============================================================
+
+lo_part = (
+    k * ret_lo_bn
+).rename("lo_part")
+
+so_part = (
+    k * ret_so_bn
+).rename("so_part")
+
+pa_bn_isovol_rebuilt = (
+    lo_part + so_part
+).rename("pa_bn_isovol_rebuilt")
+
+
+# ============================================================
+# 11. Collect everything
+# ============================================================
+
+df_decomp = pd.concat(
+    [
+        ret_lo,
+        ret_so,
+        beta_lo,
+        beta_so,
+        beta_port_ret,
+        beta_norm_sq,
+        beta_mimicking_ret,
+        ret_lo_bn,
+        ret_so_bn,
+        pa_bn_rebuilt_pre_isovol,
+        k,
+        lo_part,
+        so_part,
+        pa_bn_isovol_rebuilt,
+    ],
+    axis=1
+)
+
+df_decomp = df_decomp.dropna()
+
+
+# ============================================================
+# 12. Optional comparison with original BN + isovol strategy
+# ============================================================
+
+if "pa_bn_isovol" in globals():
+
+    original = pa_bn_isovol.squeeze().reindex(df_decomp.index)
+
+    comparison = pd.concat(
+        [
+            original.rename("pa_bn_isovol_original"),
+            df_decomp["pa_bn_isovol_rebuilt"],
+        ],
+        axis=1
+    ).dropna()
+
+    comparison["error"] = (
+        comparison["pa_bn_isovol_original"]
+        - comparison["pa_bn_isovol_rebuilt"]
+    )
+
+    print("Mean error:")
+    print(comparison["error"].mean())
+
+    print("\nMean absolute error:")
+    print(comparison["error"].abs().mean())
+
+    print("\nRMSE:")
+    print(
+        np.sqrt(
+            np.mean(
+                comparison["error"] ** 2
+            )
+        )
+    )
+
+    print("\nCorrelation original vs rebuilt:")
+    print(
+        comparison[
+            [
+                "pa_bn_isovol_original",
+                "pa_bn_isovol_rebuilt"
+            ]
+        ].corr().iloc[0, 1]
+    )
+
+
+# ============================================================
+# 13. Optional exact identity checks
+# ============================================================
+
+# beta of total pre-BN portfolio
+beta_total = (
+    w.shift(1)
+    .mul(betas_lag)
+    .sum(axis=1)
+)
+
+# Must equal beta_lo + beta_so
+check_beta_split = (
+    beta_total
+    - (beta_lo + beta_so)
+)
+
+print("\nMax beta split error:")
+print(check_beta_split.abs().max())
+
+
+# Direct reconstruction from exact projection:
+#
+# w_BN,t-1
+# =
+# w_{t-1}
+# -
+# lambda_{t-1} beta_{t-1}
+#
+# lambda_{t-1}
+# =
+# (beta' w) / (beta' beta)
+
+lambda_total = (
+    beta_total / beta_norm_sq
+)
+
+w_bn_exact = (
+    w.shift(1)
+    - betas_lag.mul(lambda_total, axis=0)
+)
+
+ret_bn_direct = (
+    w_bn_exact
+    .mul(rets_aligned)
+    .sum(axis=1)
+    .rename("ret_bn_direct")
+)
+
+check_exact_reconstruction = (
+    ret_bn_direct
+    - pa_bn_rebuilt_pre_isovol
+)
+
+print("\nMax exact BN reconstruction error:")
+print(check_exact_reconstruction.abs().max())
