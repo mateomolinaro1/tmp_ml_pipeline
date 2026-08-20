@@ -2497,3 +2497,20 @@ cumprod_path = folder_path / Path("bn_merged_cumprod.png")
 fig.savefig(cumprod_path, dpi=300, bbox_inches="tight")
 
 plt.close(fig)
+
+y_ref = 1.0
+
+y1_min, y1_max = ax.get_ylim()
+
+y2_min, y2_max = ax2.get_ylim()
+
+relative_pos = (y_ref - y1_min) / (y1_max - y1_min)
+
+y2_min_new = (
+
+    y_ref - relative_pos * y2_max
+
+) / (1 - relative_pos)
+
+ax2.set_ylim(y2_min_new, y2_max)
+
