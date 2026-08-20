@@ -2437,3 +2437,63 @@ check_exact_reconstruction = (
 
 print("\nMax exact BN reconstruction error:")
 print(check_exact_reconstruction.abs().max())
+
+# Cumulative returns
+cumprod = (1 + df_to_plot).cumprod()
+cumprod = cumprod / cumprod.iloc[0, :]
+
+fig, ax = plt.subplots(figsize=(9, 4))
+
+# --------------------------------------------------
+# Left axis: portfolio return series
+# --------------------------------------------------
+left_cols = [
+    "pa_bn_isovol_rebuilt",
+    "pa_bn_isovol",
+    "lo_part",
+    "so_part"
+]
+
+cumprod[left_cols].plot(ax=ax)
+
+ax.set_xlabel("Date")
+ax.set_ylabel("Cumulative growth")
+ax.grid(alpha=0.3)
+
+# --------------------------------------------------
+# Right axis: LR_Sigma_Y_BN
+# --------------------------------------------------
+ax2 = ax.twinx()
+
+cumprod["LR_Sigma_Y_BN"].plot(
+    ax=ax2,
+    linestyle="--",
+    label="LR_Sigma_Y_BN"
+)
+
+ax2.set_ylabel("LR_Sigma_Y_BN cumulative growth")
+
+# --------------------------------------------------
+# Combined legend
+# --------------------------------------------------
+lines1, labels1 = ax.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+
+ax.legend(
+    lines1 + lines2,
+    labels1 + labels2,
+    loc="upper left"
+)
+
+# Remove the automatic legend from ax2
+if ax2.get_legend() is not None:
+    ax2.get_legend().remove()
+
+ax.set_title(
+    "Cumulative Performance of the decomposition of Pure Alpha BN"
+)
+
+cumprod_path = folder_path / Path("bn_merged_cumprod.png")
+fig.savefig(cumprod_path, dpi=300, bbox_inches="tight")
+
+plt.close(fig)
