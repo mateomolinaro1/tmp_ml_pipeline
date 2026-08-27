@@ -1,3 +1,69 @@
+import pandas as pd
+import numpy as np
+
+
+# ============================================================
+# INPUTS
+# ============================================================
+# w_before_bn:
+#   DataFrame de poids
+#   index   = dates de rebalancement mensuelles
+#   columns = actifs
+#
+# rets_monthly:
+#   DataFrame de rendements mensuels
+#   index   = dates mensuelles
+#   columns = actifs
+#
+# Convention:
+#   les poids décidés à la date t sont appliqués aux rendements
+#   de la période suivante t -> t+1.
+# ============================================================
+
+
+# 1. Alignement univers / colonnes
+common_cols = w_before_bn.columns.intersection(rets_monthly.columns)
+
+w = w_before_bn[common_cols].copy()
+r = rets_monthly[common_cols].copy()
+
+
+# 2. Alignement temporel
+common_dates = w.index.intersection(r.index)
+
+w = w.loc[common_dates]
+r = r.loc[common_dates]
+
+
+# 3. Lag d'implémentation
+# poids observés/décidés à t
+# -> rendement réalisé à t+1
+w_implemented = w.shift(1)
+
+
+# 4. Rendement mensuel du portefeuille
+portfolio_ret = (
+    w_implemented * r
+).sum(axis=1, min_count=1)
+
+
+# 5. Supprimer les dates pour lesquelles aucun portefeuille
+# n'était encore implémenté
+portfolio_ret = portfolio_ret.dropna()
+
+
+# 6. Reconstruction de la NAV
+nav = (1.0 + portfolio_ret).cumprod()
+
+
+# 7. DataFrame final
+nav_monthly = pd.DataFrame({
+    "portfolio_return": portfolio_ret,
+    "NAV": nav
+})
+
+print(nav_monthly)
+
 \section{Exact vs.\ Economic Decomposition of the Beta-Neutral Pure Alpha}
 
 We consider a Pure Alpha portfolio with weights
